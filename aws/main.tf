@@ -154,7 +154,58 @@ resource "aws_instance" "ctf_instance" {
   # AWS supports gzip-compressed user_data (cloud-init auto-decompresses)
   user_data_base64 = var.use_local_setup ? data.external.compressed_setup[0].result.compressed : base64encode(<<-EOF
     #!/bin/bash
-    curl -fsSL https://raw.githubusercontent.com/learntocloud/linux-ctfs/main/ctf_setup.sh | bash
+    EBS_MOUNT="/mnt/ctf_ebs"
+    EBS_DEVICE=""
+
+    # Wait up to 60s for EBS to be attached
+    for i in $(seq 1 30); do
+      if [ -b "/dev/nvme1n1" ]; then
+        EBS_DEVICE="/dev/nvme1n1"
+        break
+      elif [ -b "/dev/xvdf" ]; then
+        EBS_DEVICE="/dev/xvdf"
+        break
+      fi
+      sleep 2
+    done
+
+    # Mount EBS and set up persistent state directories
+    if [ -n "$EBS_DEVICE" ]; then
+      if ! blkid "$EBS_DEVICE" > /dev/null 2>&1; then
+        mkfs.ext4 -F "$EBS_DEVICE"
+      fi
+      mkdir -p "$EBS_MOUNT"
+      mount "$EBS_DEVICE" "$EBS_MOUNT"
+      mkdir -p "$EBS_MOUNT/ctf_state" "$EBS_MOUNT/ctf_progress"
+      # Auto-mount on reboot
+      echo "$EBS_DEVICE $EBS_MOUNT ext4 defaults,nofail 0 2" >> /etc/fstab
+    else
+      # Fallback so setup doesn't crash if volume fails to attach
+      mkdir -p "$EBS_MOUNT/ctf_state" "$EBS_MOUNT/ctf_progress"
+    fi
+
+    # Download ctf_setup.sh
+    curl -fsSL https://raw.githubusercontent.com/learntocloud/linux-ctfs/main/ctf_setup.sh -o /tmp/ctf_setup.sh
+
+    # Setup /var/ctf symlink to EBS BEFORE running setup script
+    # This ensures all start times and progress files written by ctf_setup.sh go directly to EBS
+    if mountpoint -q "$EBS_MOUNT"; then
+      mkdir -p /var/ctf
+      if [ ! -f "$EBS_MOUNT/ctf_progress/completed_challenges" ]; then
+        # On first run, we have no progress to copy but we link it anyway
+        true
+      fi
+      rm -rf /var/ctf
+      ln -sf "$EBS_MOUNT/ctf_progress" /var/ctf
+    fi
+
+    # Patch ctf_setup.sh to persist/restore INSTANCE_SUFFIX and INSTANCE_ID from EBS
+    # We write the python script via base64 to avoid ANY Terraform heredoc escaping issues
+    echo 'aW1wb3J0IHJlCgp3aXRoIG9wZW4oJy90bXAvY3RmX3NldHVwLnNoJywgJ3InKSBhcyBmOgogICAgY29udGVudCA9IGYucmVhZCgpCgojIFJlcGxhY2UgZ2VuZXJhdGVfZmxhZ19zdWZmaXgoKSB0byByZXN0b3JlIGZyb20gRUJTIG9yIGdlbmVyYXRlK3NhdmUgbmV3IG9uZQpvbGRfZm4gPSAnZ2VuZXJhdGVfZmxhZ19zdWZmaXgoKSB7XG4gICAgaGVhZCAtYyA0IC9kZXYvdXJhbmRvbSB8IHh4ZCAtcFxufScKbmV3X2ZuID0gJycnZ2VuZXJhdGVfZmxhZ19zdWZmaXgoKSB7CiAgICBpZiBbIC1mIC9tbnQvY3RmX2Vicy9jdGZfc3RhdGUvc3VmZml4IF07IHRoZW4KICAgICAgICBjYXQgL21udC9jdGZfZWJzL2N0Zl9zdGF0ZS9zdWZmaXgKICAgIGVsc2UKICAgICAgICBsb2NhbCBzCiAgICAgICAgcz0kKGhlYWQgLWMgNCAvZGV2L3VyYW5kb20gfCB4eGQgLXApCiAgICAgICAgZWNobyAiJHMiID4gL21udC9jdGZfZWJzL2N0Zl9zdGF0ZS9zdWZmaXgKICAgICAgICBlY2hvICIkcyIKICAgIGZpCn0nJycKY29udGVudCA9IGNvbnRlbnQucmVwbGFjZShvbGRfZm4sIG5ld19mbikKCiMgUmVwbGFjZSBJTlNUQU5DRV9JRCBnZW5lcmF0aW9uIHRvIHJlc3RvcmUgZnJvbSBFQlMgb3IgZ2VuZXJhdGUrc2F2ZSBuZXcgb25lCm9sZF9pZCA9ICdJTlNUQU5DRV9JRD0kKGhlYWQgLWMgMTYgL2Rldi91cmFuZG9tIHwgeHhkIC1wKScKbmV3X2lkID0gJ0lOU1RBTkNFX0lEPSQoY2F0IC9tbnQvY3RmX2Vicy9jdGZfc3RhdGUvaW5zdGFuY2VfaWQgMi4vZGV2L251bGwgfHwgKGhlYWQgLWMgMTYgL2Rldi91cmFuZG9tIHwgeHhkIC1wIHwgdGVlIC9tbnQvY3RmX2Vicy9jdGZfc3RhdGUvaW5zdGFuY2VfaWQpKScKY29udGVudCA9IGNvbnRlbnQucmVwbGFjZShvbGRfaWQsIG5ld19pZCkKCndpdGggb3BlbignL3RtcC9jdGZfc2V0dXAuc2gnLCAndzcpIGFzIGY6CiAgICBmLndyaXRlKGNvbnRlbnQpCg==' | base64 -d > /tmp/patch.py
+    python3 /tmp/patch.py
+
+    bash /tmp/ctf_setup.sh
+
   EOF
   )
 
@@ -197,7 +248,7 @@ resource "null_resource" "wait_for_setup" {
       host     = aws_instance.ctf_instance.public_ip
       user     = "ctf_user"
       password = "CTFpassword123!"
-      timeout  = "10m"
+      timeout  = "15m"
     }
 
     inline = [
