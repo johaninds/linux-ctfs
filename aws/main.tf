@@ -1,3 +1,13 @@
+terraform {
+  backend "s3" {
+    bucket  = "linux-ctfs-terraform-state" # Replace with your globally unique S3 bucket name
+    key     = "aws/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
+    # dynamodb_table = "terraform-state-lock" # Optional: Uncomment to use DynamoDB for state locking
+  }
+}
+
 # Configure the AWS Provider
 # Define the region variable
 variable "aws_region" {
