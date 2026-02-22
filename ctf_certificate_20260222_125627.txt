@@ -1,0 +1,27 @@
+============================================================
+         LEARN TO CLOUD - CTF COMPLETION CERTIFICATE
+============================================================
+
+  This certifies that GitHub user
+
+              johaninds
+
+  has successfully completed all 18 Linux CTF challenges
+
+  Completion Time: 00:37
+  Date: 2026-02-22
+
+  Challenges Completed:
+   * Hidden File Discovery      * Service Discovery
+   * Basic File Search          * Encoding Challenge
+   * Log Analysis               * SSH Secrets
+   * User Investigation         * DNS Troubleshooting
+   * Permission Analysis        * Remote Upload Detection
+   * Web Configuration          * Network Traffic Analysis
+   * Cron Job Hunter            * Process Environment
+   * Archive Archaeologist      * Symbolic Sleuth
+   * History Mystery            * Disk Detective
+
+============================================================
+                    Congratulations!
+============================================================
